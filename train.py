@@ -2,18 +2,18 @@ import torch
 from torch import optim
 from torch.nn import functional as F
 from network import QNetwork
-import gym
 from tqdm import tqdm
 from buffer import ReplayBuffer
 from itertools import count
 import argparse
 import numpy as np
 import utils
+from snake import SnakeEnv
+from gymnasium.wrappers import FlattenObservation
 
 def experiment(args):
     # environment setup
-    env = gym.make(args.env)
-    env.seed(0)
+    env = FlattenObservation(SnakeEnv(w = 5, h = 5, food_count = 10))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n # here it is discrete, so we have n here as opposed to the dimension of the action
     
@@ -21,10 +21,10 @@ def experiment(args):
     network = QNetwork(args.gamma, state_dim, action_dim, args.hidden_sizes)
     
     # optimizer setup
-    if args.env == 'CartPole-v0':
-        optimizer = optim.RMSprop(network.parameters(), lr=args.lr)
-    else:
-        optimizer = optim.Adam(network.parameters(), lr=args.lr)
+    # if args.env == 'CartPole-v0':
+    #     optimizer = optim.RMSprop(network.parameters(), lr=args.lr)
+    # else:
+    optimizer = optim.Adam(network.parameters(), lr=args.lr)
     
     # target setup (if wanted)
     if args.target:
@@ -36,9 +36,12 @@ def experiment(args):
     buffer = ReplayBuffer(maxsize=args.max_size)
     
     # training
-    for i in tqdm(range(args.num_episodes)):
+    max_score = 0
+    for i in (bar := tqdm(range(args.num_episodes))):
         # initial observation, cast into a torch tensor
-        ob = torch.from_numpy(env.reset()).float()
+        ob = env.reset(seed=0)
+        print(ob[0])
+        ob = torch.from_numpy(env.reset(seed=0)).float()
         
         for t in count():
             with torch.no_grad():
@@ -47,7 +50,7 @@ def experiment(args):
                 action = network.get_action(ob, eps)
             
             # Step the environment, convert everything to torch tensors
-            n_ob, rew, done, _ = env.step(action)
+            n_ob, rew, done, info = env.step(action)
             
             action = torch.tensor(action)
             n_ob = torch.from_numpy(n_ob).float()
@@ -57,6 +60,7 @@ def experiment(args):
             buffer.add_experience(ob, action, rew, n_ob, done)
             
             ob = n_ob
+            print(ob)
             
             if len(buffer) >= args.batch_size:
                 if t % args.learning_freq == 0:
@@ -90,6 +94,8 @@ def experiment(args):
             if done:
                 # we are done, so we break out of the for loop here
                 # feel free to log anything you want here during training.
+                max_score = max(info["score"], max_score)
+                bar.set_description(f"score: {max_score}")
                 break
         
         # Update target based on args.target_update_freq.
@@ -98,29 +104,28 @@ def experiment(args):
             utils.update_target(network, target_network, args.tau)
     
     # save final agent
-    save_path = args.save_path + '_' + args.env.lower() + '.pt'
+    save_path = args.save_path + '_' + 'Snake' + '.pt'
     torch.save(network, save_path)
     
 def get_args():
     parser = argparse.ArgumentParser(description='Q-Learning')
     
     # Environment args
-    parser.add_argument('--env', default='CartPole-v0', help='name of environment')
     parser.add_argument('--gamma', type=float, default=0.999, help='discount factor')
     parser.add_argument('--eps', type=float, default=0.999, help='epsilon parameter')
     
     # Network args
-    parser.add_argument('--hidden_sizes', nargs='+', type=int, help='hidden sizes of Q network')
+    parser.add_argument('--hidden_sizes', default=[128, 128, 128], nargs='+', type=int, help='hidden sizes of Q network')
     parser.add_argument('--lr', type=float, default=0.00025, help='learning rate for Q function optimizer')
     parser.add_argument('--target', action='store_true', help='if we want to use a target network')
     parser.add_argument('--target_update_freq', type=int, default=10, help='how often we update the target network')
-    parser.add_argument('--tau', type=float, default=1.0, help='target update parameter')
+    parser.add_argument('--tau', type=float, default=0.7, help='target update parameter')
     
     # Replay buffer args
-    parser.add_argument('--max_size', type=int, default=10000, help='max buffer size')
+    parser.add_argument('--max_size', type=int, default=1000, help='max buffer size')
     
     # Training/saving args
-    parser.add_argument('--num_episodes', type=int, default=1000, help='number of episodes to run during training')
+    parser.add_argument('--num_episodes', type=int, default=40000, help='number of episodes to run during training')
     parser.add_argument('--batch_size', type=int, default=128, help='batch size for training')
     parser.add_argument('--save_path', default='./trained_agent', help='agent save path')
     parser.add_argument('--learning_freq', type=int, default=1, help='how often to update the network after collecting experience')

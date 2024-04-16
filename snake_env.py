@@ -1,5 +1,5 @@
 from time import sleep
-import gym
+import gymnasium as gym
 import math
 import numpy as np
 import random

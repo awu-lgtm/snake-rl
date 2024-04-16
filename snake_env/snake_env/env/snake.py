@@ -1,10 +1,10 @@
 import pygame
-from enum import IntEnum
-from collections import deque
+import random
+from enum import Enum, IntEnum
+from collections import namedtuple, deque
 import numpy as np
-import gymnasium as gym
+import gymnasium
 from gymnasium import spaces
-from utils import Point, Direction, l1_norm, dirs_to_point, map_dirs
 
 import sys
 
@@ -40,6 +40,27 @@ snake_head_r = pygame.transform.scale(pygame.image.load(f'{assets_path}/snake_he
 snake_head_l = pygame.transform.flip(snake_head_r, True, False)
 snake_head_d = pygame.transform.scale(pygame.image.load(f'{assets_path}/snake_head_v.png'), (BLOCK_SIZE, 1.25 * BLOCK_SIZE))
 snake_head_u = pygame.transform.flip(snake_head_d, False, True)
+
+Point = namedtuple('Point', ['x', 'y'])
+class Direction(Enum):
+    UP = 0
+    RIGHT = 1
+    DOWN = 2
+    LEFT = 3
+
+    @classmethod
+    def is_opposite(self, d1, d2):
+        return (d1 == Direction.RIGHT and d2 == Direction.LEFT) \
+                or (d1 == Direction.LEFT and d2 == Direction.RIGHT) \
+                or (d1 == Direction.UP and d2 == Direction.DOWN) \
+                or (d1 == Direction.DOWN and d2 == Direction.UP)
+    @classmethod
+    def turn_right(self, d):
+        return (d + 1)%4
+
+    @classmethod
+    def turn_left(self, d):
+        return (d + 3)%4 
         
 class Square(IntEnum):
     EMPTY = 0
@@ -78,10 +99,8 @@ class Snake:
             self.dir = action
 
         point = Point(x, y)
-        if state.is_out_of_bounds(point):
-            return True, None, (True, False)
-        if state.is_snake(point):
-            return True, None, (False, True)
+        if state.is_collision(point): 
+            return True, None
 
         state.state[self.head.y, self.head.x] = Square.SNAKE
         self.head = point
@@ -91,13 +110,13 @@ class Snake:
             food = state.snake_eats_food(point)
             state.state[self.head.y, self.head.x] = Square.HEAD
             state.spawn_food()
-            return False, food, (False, False)
+            return False, food
         
         state.state[self.tail.y, self.tail.x] = Square.EMPTY
         state.state[self.head.y, self.head.x] = Square.HEAD
         self.snake.pop()
         self.tail = self.snake[-1]
-        return False, None, (False, False)
+        return False, None
     
     def add_to_state(self, state: np.ndarray):
         for i, point in enumerate(self.snake):
@@ -140,19 +159,17 @@ class Food:
 
         
 class State:
-    def __init__(self, w, h, food_count):
+    def __init__(self, w, h):
         self.score = 0
         self.w, self.h = w, h
-        self.food_count = food_count
         self._init_state()
 
     def _init_state(self):
         w,h = self.w, self.h
-        self.state: np.ndarray = np.zeros((w, h), dtype=int)
+        self.state: np.ndarray = np.zeros((w, h))
         self.snake: Snake = Snake(3, Point(2, h//2), Direction.RIGHT, w, h)
         self.snake.add_to_state(self.state)
         self.foods: list[Food] = []
-        self.spawn_food(self.food_count)
 
     def reset(self):
         self.score = 0
@@ -166,19 +183,17 @@ class State:
         for point in points:
             self.state[point[0], point[1]] = Square.FOOD
             point = Point(point[1], point[0])
-            food = Food(10, point)
+            food = Food(1, point)
             self.foods.append(food)
     
     def move_snake(self, action: Direction):
-        done, food, collision_conds = self.snake.move(action, self)
+        done, food = self.snake.move(action, self)
         reward = food.value if food is not None else 0
         if self.is_win():
             self.score += 100
             reward += 100
-            return True, reward, collision_conds
-        if done == True:
-            reward -= 10
-        return done, reward, collision_conds
+            return True, reward
+        return done, reward
     
     def is_win(self):
         return len(self.snake.snake) == self.w * self.h
@@ -188,12 +203,9 @@ class State:
         w,h = self.state.shape
         return x >= w or x < 0 or y >= h or y < 0
     
-    def is_snake(self, point: Point):
-        x,y = point.x, point.y
-        return self.state[y, x] == Square.SNAKE or self.state[y, x] == Square.HEAD
-    
     def is_collision(self, point: Point):
-        return self.is_out_of_bounds(point) or self.is_snake(point)
+        x,y = point.x, point.y
+        return self.is_out_of_bounds(point) or self.state[y, x] == Square.SNAKE or self.state[y, x] == Square.HEAD
     
     def is_food(self, point: Point):
         x,y = point.x, point.y
@@ -244,11 +256,12 @@ class State:
     
 class SnakeGame:
     display: pygame.display
-    def __init__(self, w=W, h=H, food_count=1):
-        self.w = w
-        self.h = h
+    def __init__(self, food_count, w=W, h=H):
+        self.w = W
+        self.h = H
 
-        self.state = State(w, h, food_count)
+        self.state = State(w, h)
+        self.state.spawn_food(food_count)
     
     def draw_border(self):
         for x in range(self.w + 1):
@@ -272,81 +285,61 @@ class SnakeGame:
         self.display.blit(text, [0, 0])
 
 class SnakeEnv(SnakeGame, gym.Env):
-    metadata = {'render.modes': ['human'], "render_fps": 16}
-    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=False):
-        SnakeGame.__init__(self, w=w, h=h, food_count=food_count)
+    metadata = {'render.modes': ['human'], "render_fps": 8}
+    def __init__(self, render_mode=None, w=W, h=H):
+        Snake.__init__(self, 10, w, h)
         
-        state_space, dirs_space = np.empty(w*h), np.empty(4)
-        state_space.fill(4), dirs_space.fill(4)
-        self.observation_space = spaces.Dict({'state': spaces.MultiDiscrete(state_space),
-                                              #head relative
-                                              'dirs-to-food': spaces.MultiDiscrete(dirs_space), 
-                                              'danger-dirs': spaces.MultiDiscrete(dirs_space.copy()),
-                                              })
-
-        if head_relative_action:
-            self.action_space = spaces.Discrete(3)
-        else:
-            self.action_space = spaces.Discrete(4)
-
-        self.render_mode = render_mode
+        self.observation_space = spaces.MultiDiscrete(np.empty(w*h).fill(3))
+        self.action_space = spaces.Discrete(3)
+        self.game_state = State(w, h)
+        self.game_state.spawn_food(5)
 
         self.display = None
         self.board_display = None
+        self.render_mode = render_mode
+
+        self.window = None
         self.clock = None
     
     def _action_to_direction(self, action):
-        dir = self.state.snake.dir
+        dir = self.game_state.snake.dir
         match action:
             case 0:
                 return dir
             case 1:
                 return Direction.turn_left(dir)
             case 2:
-                return Direction.turn_right(dir)
+                return Direction.turn_left(dir)
     
     def step(self, action):
-        dir = action
-        if self.action_space.n == 3:
-            dir = self._action_to_direction(action)
-        done, reward, collision_conds = self.state.move_snake(dir)
-        next_obs = self._get_obs()
-        info = {'dir': dir, "collision_conds": collision_conds, "state": self.state, "score": self.state.score}
+        dir = self._action_to_direction(action)
+        done, reward = self.game_state.move_snake(dir)
+        next_obs = self.game_state.get_state_copy().flatten()
+        info = dict()
 
         if self.render_mode == "human":
             self._render_frame()
 
-        return next_obs, reward, done, False, info
+        return next_obs, done, reward, info
     
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
         super().reset(seed=seed)
-        self.state.reset()
-        obs = self._get_obs()
-        info = {'dir': Direction.RIGHT, "collision_conds": (False, False), "state": self.state, "score": self.state.score}
+        self.game_state.reset()
+        obs = self.game_state.get_state_copy().flatten()
 
         if self.render_mode == "human":
             self._render_frame()
-        return obs, info
-    
-    def _get_obs(self):
-        state = self.state.get_state_copy().flatten()
-        head = self.state.snake.head
-        nearest_food = min(self.state.foods, key=lambda food: l1_norm(food.point, head))
-        dirs_to_food = dirs_to_point(head, nearest_food.point)
-        dangers = map_dirs(head, lambda p: int(self.state.is_collision(p)))
-        
-        obs = {'state': state, 'dirs-to-food': dirs_to_food, 'danger-dirs': dangers}
-        return obs
 
+        return obs
+    
     def render(self):
         self._render_frame()
 
     def _render_frame(self):
-        if self.display is None and self.render_mode == 'human':
+        if self.window is None and self.render_mode == 'human':
             pygame.init()
             pygame.display.init()
-            self.display = pygame.display.set_mode((self.w * BLOCK_SIZE + 2 * BORDER_WIDTH, self.h * BLOCK_SIZE + 2 * BORDER_WIDTH))
-            self.board_display = pygame.surface.Surface((self.w * BLOCK_SIZE, self.h * BLOCK_SIZE))
+            self.window = pygame.display.set_mode((self.w, self.h))
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
         super()._render_frame()
@@ -357,7 +350,7 @@ class SnakeEnv(SnakeGame, gym.Env):
             self.clock.tick(self.metadata["render_fps"])
 
     def close(self):
-        if self.display is not None:
+        if self.window is not None:
             pygame.display.quit()
             pygame.quit()
 
@@ -388,7 +381,7 @@ class SnakePygame(SnakeGame):
                     dir = Direction.DOWN
         
         # 2. move
-        done, _, _ = self.state.move_snake(dir)
+        done, _ = self.state.move_snake(dir)
         
         # 3. check if done
         if done:

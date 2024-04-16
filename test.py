@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 import sys
 from snake import SnakeEnv
+from gymnasium.wrappers import FlattenObservation
 
 
 def test_agent(agent_path, env):
@@ -11,7 +12,7 @@ def test_agent(agent_path, env):
     episode_length = 1000
     for _ in range(episode_length):
         done = False
-        ob = env.reset()
+        ob, _ = env.reset()
         agent = torch.load(agent_path)
         length = 0
         reward = 0
@@ -22,7 +23,7 @@ def test_agent(agent_path, env):
             qs = agent(torch.from_numpy(ob).float())
             a = qs.argmax().numpy()
 
-            next_ob, r, done, _ = env.step(a)
+            next_ob, r, done, _, _ = env.step(a)
             ob = next_ob
             length += 1
             reward += r
@@ -44,6 +45,6 @@ def get_args():
 
 if __name__ == '__main__':
     args = get_args()
-    env = SnakeEnv(w=5, h=5, food_count=10, render_mode="human")
+    env = FlattenObservation(SnakeEnv(w=5, h=5, food_count=5, render_mode="human"))
     agent_path = f'./trained_agent_Snake.pt'
     test_agent(agent_path, env)

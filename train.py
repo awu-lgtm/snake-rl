@@ -10,10 +10,11 @@ import numpy as np
 import utils
 from snake import SnakeEnv
 from gymnasium.wrappers import FlattenObservation
+from collections import deque
 
 def experiment(args):
     # environment setup
-    env = FlattenObservation(SnakeEnv(w = 5, h = 5, food_count = 10))
+    env = FlattenObservation(SnakeEnv(w = 5, h = 5, food_count = 5))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n # here it is discrete, so we have n here as opposed to the dimension of the action
     
@@ -37,11 +38,11 @@ def experiment(args):
     
     # training
     max_score = 0
+    mean_scores = deque(maxlen=10)
     for i in (bar := tqdm(range(args.num_episodes))):
         # initial observation, cast into a torch tensor
-        ob = env.reset(seed=0)
-        print(ob[0])
-        ob = torch.from_numpy(env.reset(seed=0)).float()
+        ob, _ = env.reset(seed=0)
+        ob = torch.tensor(ob).float()
         
         for t in count():
             with torch.no_grad():
@@ -50,17 +51,16 @@ def experiment(args):
                 action = network.get_action(ob, eps)
             
             # Step the environment, convert everything to torch tensors
-            n_ob, rew, done, info = env.step(action)
+            n_ob, rew, terminated, truncated, info = env.step(action)
             
             action = torch.tensor(action)
             n_ob = torch.from_numpy(n_ob).float()
             rew = torch.tensor([rew])
             
             # Add new experience to replay buffer.
-            buffer.add_experience(ob, action, rew, n_ob, done)
+            buffer.add_experience(ob, action, rew, n_ob, terminated)
             
             ob = n_ob
-            print(ob)
             
             if len(buffer) >= args.batch_size:
                 if t % args.learning_freq == 0:
@@ -91,11 +91,13 @@ def experiment(args):
                     loss.backward()
                     optimizer.step()
             
-            if done:
+            if terminated or truncated:
                 # we are done, so we break out of the for loop here
                 # feel free to log anything you want here during training.
-                max_score = max(info["score"], max_score)
-                bar.set_description(f"score: {max_score}")
+                score = info["score"]
+                max_score = max(score, max_score)
+                mean_scores.append(score)
+                bar.set_description(f"score: {max_score}, mean: {np.mean(mean_scores)}")
                 break
         
         # Update target based on args.target_update_freq.
@@ -103,9 +105,10 @@ def experiment(args):
         if args.target and i % args.target_update_freq == 0:
             utils.update_target(network, target_network, args.tau)
     
-    # save final agent
-    save_path = args.save_path + '_' + 'Snake' + '.pt'
-    torch.save(network, save_path)
+        # save agent
+        if i % 1000 == 0:
+            save_path = args.save_path + '_' + 'Snake' + '.pt'
+            torch.save(network, save_path)
     
 def get_args():
     parser = argparse.ArgumentParser(description='Q-Learning')

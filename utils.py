@@ -4,6 +4,8 @@ from collections import namedtuple
 from enum import IntEnum
 import numpy as np
 from typing import Callable
+import matplotlib.pyplot as plt
+from IPython import display
 
 Point = namedtuple('Point', ['x', 'y'])
 class Direction(IntEnum):
@@ -53,7 +55,7 @@ def update_target(net, target_net, tau):
         t.data = (1 - tau) * t.data + tau * n.data
 
 def get_eps(eps_param, t):
-    eps = eps_param ** t
+    eps = eps_param * t
     if eps <= 0.001:
         return 0.001
     return eps
@@ -68,9 +70,9 @@ def dirs_to_point(start: Point, end: Point):
     x2, y2 = end.x, end.y
     
     dirs = np.zeros(4, dtype=int)
-    if y2 > y1:
-        dirs[Direction.UP] = 1
     if y2 < y1:
+        dirs[Direction.UP] = 1
+    if y2 > y1:
         dirs[Direction.DOWN] = 1
     if x2 > x1:
         dirs[Direction.RIGHT] = 1
@@ -78,11 +80,47 @@ def dirs_to_point(start: Point, end: Point):
         dirs[Direction.LEFT] = 1
     return dirs
 
-def map_dirs(p: Point, fun: Callable[[Point], int]):
+def move_in_dir(p:Point, dir: Direction):
     x,y = p.x, p.y
-    dirs = np.empty(4, dtype=int)
-    dirs[Direction.UP] = fun(Point(x, y + 1))
-    dirs[Direction.RIGHT] = fun(Point(x + 1, y))
-    dirs[Direction.DOWN] = fun(Point(x, y - 1))
-    dirs[Direction.LEFT] = fun(Point(x - 1, y))
+    match dir:
+        case Direction.RIGHT:
+            x += 1
+        case Direction.LEFT:
+            x -= 1
+        case Direction.UP:
+            y -= 1
+        case Direction.DOWN:
+            y += 1
+    return Point(x, y)
+
+def map_dirs(p: Point, fun: Callable[[Point], int], dir=None):
+    if dir is not None:
+        dirs = np.empty(3, dtype=np.int8)
+        dirs[0] = fun(move_in_dir(p, dir))
+        dirs[1] = fun(move_in_dir(p, Direction.turn_left(dir)))
+        dirs[2] = fun(move_in_dir(p, Direction.turn_right(dir)))
+    else:
+        x,y = p.x, p.y
+        dirs = np.empty(4, dtype=np.int8)
+        dirs[Direction.UP] = fun(Point(x, y - 1))
+        dirs[Direction.RIGHT] = fun(Point(x + 1, y))
+        dirs[Direction.DOWN] = fun(Point(x, y + 1))
+        dirs[Direction.LEFT] = fun(Point(x - 1, y))
     return dirs
+
+def plot(scores, max_scores, mean_scores):
+    display.clear_output(wait=True)
+    display.display(plt.gcf())
+    plt.clf()
+    plt.title('Training...')
+    plt.xlabel('Number of Games')
+    plt.ylabel('Score')
+    plt.plot(scores)
+    plt.plot(max_scores)
+    plt.plot(mean_scores)
+    plt.ylim(ymin=0)
+    plt.text(len(scores)-1, scores[-1], str(scores[-1]))
+    plt.text(len(max_scores)-1, max_scores[-1], str(max_scores[-1]))
+    plt.text(len(mean_scores)-1, mean_scores[-1], str(mean_scores[-1]))
+    plt.show(block=False)
+    plt.pause(.1)

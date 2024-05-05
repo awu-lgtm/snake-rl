@@ -4,7 +4,7 @@ from collections import deque
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Box, Dict, Discrete, MultiBinary
-from utils import Point, Direction, l1_norm, dirs_to_point, map_dirs
+from utils import Point, Direction, l1_norm, dirs_to_point, map_dirs, move_in_dir
 
 import sys
 
@@ -57,27 +57,13 @@ class Snake:
             self.snake.append(Point(self.head.x - i, self.head.y))
         self.tail: Point = self.snake[-1]
 
-    def _action_to_move(self, action, x, y):
-        match action:
-            case Direction.RIGHT:
-                x += 1
-            case Direction.LEFT:
-                x -= 1
-            case Direction.UP:
-                y -= 1
-            case Direction.DOWN:
-                y += 1
-        return x, y
-
     def move(self, action: Direction, state: 'State'):
-        x,y = self.head.x, self.head.y
         if Direction.is_opposite(self.dir, action):
-            x,y = self._action_to_move(self.dir, x, y)
+            point = move_in_dir(self.head, self.dir)
         else:
-            x,y = self._action_to_move(action, x, y)
+            point = move_in_dir(self.head, action)
             self.dir = action
 
-        point = Point(x, y)
         if state.is_out_of_bounds(point):
             return True, None, (True, False)
         if state.is_snake(point):
@@ -166,7 +152,7 @@ class State:
         for point in points:
             self.state[point[0], point[1]] = Square.FOOD
             point = Point(point[1], point[0])
-            food = Food(10, point)
+            food = Food(1, point)
             self.foods.append(food)
     
     def move_snake(self, action: Direction):
@@ -272,16 +258,20 @@ class SnakeGame:
         self.display.blit(text, [0, 0])
 
 class SnakeEnv(SnakeGame, gym.Env):
-    metadata = {'render.modes': ['human'], "render_fps": 16}
-    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=False, truncation_lim=1000):
+    metadata = {'render.modes': ['human'], "render_fps": 128}
+    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=True, head_relative_state=True, absolute_state=True, truncation_lim=160_000):
         SnakeGame.__init__(self, w=w, h=h, food_count=food_count)
         
-        self.observation_space = Dict({'state': Box(low=0, high=3, shape=(h, w), dtype=np.int8),
-                                        'head-relative': Dict({
+        self.absolute_state = absolute_state
+        self.head_relative_state = head_relative_state
+        observation_space = {}
+        if absolute_state: observation_space['state'] = Box(low=0, high=3, shape=(h, w), dtype=np.int8)
+        if head_relative_state: observation_space['head-relative'] = Dict({
                                             'dirs-to-food': MultiBinary(4), 
-                                            'danger-dirs': MultiBinary(4),
+                                            'danger-dirs': MultiBinary(3),
+                                            'head-dir': MultiBinary(4)
                                         })
-                                    })
+        self.observation_space = Dict(observation_space)
 
         if head_relative_action:
             self.action_space = Discrete(3)
@@ -336,16 +326,21 @@ class SnakeEnv(SnakeGame, gym.Env):
         return obs, info
     
     def _get_obs(self):
-        state = self.state.get_state_copy().flatten()
-        head = self.state.snake.head
-        if len(self.state.foods) == 0:
-            dirs_to_food = np.zeros(4)
-        else:
-            nearest_food = min(self.state.foods, key=lambda food: l1_norm(food.point, head))
-            dirs_to_food = dirs_to_point(head, nearest_food.point)
-        dangers = map_dirs(head, lambda p: int(self.state.is_collision(p)))
-        
-        obs = {'state': state, 'head-relative': {'dirs-to-food': dirs_to_food, 'danger-dirs': dangers}}
+        obs = {}
+        if self.absolute_state:
+            state = self.state.get_state_copy().flatten()
+            obs['state'] = state
+        if self.head_relative_state:
+            head = self.state.snake.head
+            if len(self.state.foods) == 0:
+                dirs_to_food = np.zeros(4)
+            else:
+                nearest_food = min(self.state.foods, key=lambda food: l1_norm(food.point, head))
+                dirs_to_food = dirs_to_point(head, nearest_food.point)
+            dangers = map_dirs(head, lambda p: int(self.state.is_collision(p)), dir=self.state.snake.dir)
+            head_dir = np.zeros(4)
+            head_dir[self.state.snake.dir] = 1
+            obs['head-relative'] = {'dirs-to-food': dirs_to_food, 'danger-dirs': dangers, 'head-dir': head_dir}
         return obs
     
     # def flatten_observation(self, obs):

@@ -9,12 +9,15 @@ import argparse
 import numpy as np
 import utils
 from snake import SnakeEnv
-from gymnasium.wrappers import FlattenObservation
-from collections import deque
+from gymnasium.wrappers import FlattenObservation, FrameStack
+import matplotlib.pyplot as plt
 
 def experiment(args):
     # environment setup
-    env = FlattenObservation(SnakeEnv(w = 5, h = 5, food_count = 5))
+    render_mode = None
+    if args.render:
+        render_mode = "human"
+    env = FlattenObservation(FrameStack(FlattenObservation(SnakeEnv(w = 20, h = 20, food_count = 1, render_mode=render_mode)), num_stack=3))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n # here it is discrete, so we have n here as opposed to the dimension of the action
     
@@ -37,16 +40,20 @@ def experiment(args):
     buffer = ReplayBuffer(maxsize=args.max_size)
     
     # training
-    max_score = 0
-    mean_scores = deque(maxlen=10)
+    scores = []
+    max_scores = []
+    mean_scores = []
+    window = 100
+    eps = args.eps
     for i in (bar := tqdm(range(args.num_episodes))):
         # initial observation, cast into a torch tensor
         ob, _ = env.reset(seed=0)
         ob = torch.tensor(ob).float()
         
+        with torch.no_grad():
+            eps = utils.get_eps(eps, 0.9999)
         for t in count():
             with torch.no_grad():
-                eps = utils.get_eps(args.eps, i)
                 # Collect the action from the policy.
                 action = network.get_action(ob, eps)
             
@@ -69,7 +76,7 @@ def experiment(args):
                     #   If we're using a target Q network (see get_args() for details), make sure to get the targets with the target network.
                     #   Make sure to 'zero_grad' the optimizer before performing gradient descent.
                     
-                    # SAMPLE FROM BUFFER HERE
+                    # SAMPLE FR OM BUFFER HERE
                     optimizer.zero_grad()
                     states, actions, rewards, next_states, dones = buffer.sample(args.batch_size)
                     
@@ -95,9 +102,12 @@ def experiment(args):
                 # we are done, so we break out of the for loop here
                 # feel free to log anything you want here during training.
                 score = info["score"]
-                max_score = max(score, max_score)
-                mean_scores.append(score)
-                bar.set_description(f"score: {max_score}, mean: {np.mean(mean_scores)}")
+                scores.append(scores)
+                max_scores.append(max(score, max_scores[-1]))
+                mean_scores.append(np.mean(mean_scores[-window:]))
+                bar.set_description(f"score: {scores[-1]}, max: {max_scores[-1]}, mean: {mean_scores[-1]}")
+                if args.plot:
+                    utils.plot(scores, max_scores, mean_scores)
                 break
         
         # Update target based on args.target_update_freq.
@@ -107,9 +117,15 @@ def experiment(args):
     
         # save agent
         if i % 1000 == 0:
-            save_path = args.save_path + '_' + 'Snake' + '.pt'
+            save_path = f"{args.save_path}_Snake.pt"
             torch.save(network, save_path)
-    
+        
+        if i % 10000 == 0:
+            save_path = f"{args.save_path}_Snake_{i}.pt"
+            torch.save(network, save_path)
+    save_path = f"{args.save_path}_Snake_final.pt"
+    torch.save(network, save_path)
+
 def get_args():
     parser = argparse.ArgumentParser(description='Q-Learning')
     
@@ -118,20 +134,24 @@ def get_args():
     parser.add_argument('--eps', type=float, default=0.999, help='epsilon parameter')
     
     # Network args
-    parser.add_argument('--hidden_sizes', default=[128, 128, 128], nargs='+', type=int, help='hidden sizes of Q network')
+    parser.add_argument('--hidden_sizes', default=[128, 128], nargs='+', type=int, help='hidden sizes of Q network')
     parser.add_argument('--lr', type=float, default=0.00025, help='learning rate for Q function optimizer')
     parser.add_argument('--target', action='store_true', help='if we want to use a target network')
-    parser.add_argument('--target_update_freq', type=int, default=10, help='how often we update the target network')
-    parser.add_argument('--tau', type=float, default=0.7, help='target update parameter')
+    parser.add_argument('--target_update_freq', type=int, default=500, help='how often we update the target network')
+    parser.add_argument('--tau', type=float, default=0.5, help='target update parameter')
     
     # Replay buffer args
-    parser.add_argument('--max_size', type=int, default=1000, help='max buffer size')
+    parser.add_argument('--max_size', type=int, default=100_000, help='max buffer size')
     
     # Training/saving args
-    parser.add_argument('--num_episodes', type=int, default=40000, help='number of episodes to run during training')
-    parser.add_argument('--batch_size', type=int, default=128, help='batch size for training')
+    parser.add_argument('--num_episodes', type=int, default=100_000, help='number of episodes to run during training')
+    parser.add_argument('--batch_size', type=int, default=256, help='batch size for training')
     parser.add_argument('--save_path', default='./trained_agent', help='agent save path')
-    parser.add_argument('--learning_freq', type=int, default=1, help='how often to update the network after collecting experience')
+    parser.add_argument('--learning_freq', type=int, default=2, help='how often to update the network after collecting experience')
+
+    # display
+    parser.add_argument('render', action='store_true', help='renders game during training')
+    parser.add_argument('plot', action='store_true', help='plots scores during training')
     
     args = parser.parse_args()
     return args
@@ -140,5 +160,7 @@ if __name__ == '__main__':
     torch.manual_seed(0)
     np.random.seed(0)
     args = get_args()
+    if args.plot:
+        plt.ion()
     experiment(args)
     

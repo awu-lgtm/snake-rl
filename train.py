@@ -17,7 +17,7 @@ def experiment(args):
     render_mode = None
     if args.render:
         render_mode = "human"
-    env = FlattenObservation(FrameStack(FlattenObservation(SnakeEnv(w = 20, h = 20, food_count = 1, render_mode=render_mode)), num_stack=3))
+    env = FlattenObservation(SnakeEnv(w = 20, h = 20, food_count = 1, render_mode=render_mode))
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n # here it is discrete, so we have n here as opposed to the dimension of the action
     

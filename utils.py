@@ -76,7 +76,7 @@ def dirs_to_point(start: Point, end: Point):
         dirs[Direction.DOWN] = 1
     if x2 > x1:
         dirs[Direction.RIGHT] = 1
-    if x1 < x2:
+    if x2 < x1:
         dirs[Direction.LEFT] = 1
     return dirs
 

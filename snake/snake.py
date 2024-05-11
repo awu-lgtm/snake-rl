@@ -5,15 +5,16 @@ import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Box, Dict, Discrete, MultiBinary
 from utils import Point, Direction, l1_norm, dirs_to_point, map_dirs, move_in_dir
-
 import sys
+from pathlib import Path
 
-assets_path = "./assets"
+file_path = Path(__file__).resolve().parent
+
+assets_path = f"{file_path}/assets"
 np.set_printoptions(threshold=sys.maxsize)
 
 pygame.init()
 font = pygame.font.Font(f'{assets_path}/arial.ttf', 25)
-#font = pygame.font.SysFont('arial', 25)
 
 W = 10
 H = 10
@@ -31,7 +32,6 @@ GREEN = (162, 209, 73)
 LIGHT_GREEN = (170, 215, 81)
 
 BLOCK_SIZE = 40
-SPEED = 2
 BORDER_WIDTH = 1/2 * BLOCK_SIZE
 
 # images
@@ -43,9 +43,21 @@ snake_head_u = pygame.transform.flip(snake_head_d, False, True)
         
 class Square(IntEnum):
     EMPTY = 0
-    HEAD = 1
-    SNAKE = 2
-    FOOD = 3
+    FOOD = 2
+    HEAD_UP = 3
+    HEAD_RIGHT = 4
+    HEAD_DOWN = 5
+    HEAD_LEFT = 6
+    SNAKE = 7
+
+    @classmethod
+    def is_snake(self, square):
+        return square >= Square.HEAD_UP
+    
+    @classmethod
+    def head_dir_to_square(self, dir):
+        return dir + Square.HEAD_UP
+
 
 class Snake:
     def __init__(self, length: int, head: Point, dir: Direction, w: int, h: int):
@@ -69,28 +81,33 @@ class Snake:
         if state.is_snake(point):
             return True, None, (False, True)
 
-        state.state[self.head.y, self.head.x] = Square.SNAKE
+        state.set_state(self.head, Square.SNAKE)
         self.head = point
         self.snake.appendleft(self.head)
 
         if state.is_food(point):
             food = state.snake_eats_food(point)
-            state.state[self.head.y, self.head.x] = Square.HEAD
+            state.set_state(self.head, Square.head_dir_to_square(self.dir))
+            if state.fully_obs_state is not None:
+                self.add_to_state(state)
             state.spawn_food()
             return False, food, (False, False)
         
-        state.state[self.tail.y, self.tail.x] = Square.EMPTY
-        state.state[self.head.y, self.head.x] = Square.HEAD
+        state.set_state(self.tail, Square.EMPTY)
+        state.set_state(self.head, Square.head_dir_to_square(self.dir))
         self.snake.pop()
         self.tail = self.snake[-1]
+        if state.fully_obs_state is not None:
+            self.add_to_state(state)
         return False, None, (False, False)
     
-    def add_to_state(self, state: np.ndarray):
+    def add_to_state(self, state: 'State'):
         for i, point in enumerate(self.snake):
             if i == 0:
-                state[point.y, point.x] = Square.HEAD
+                Square.head_dir_to_square(self.dir)
+                state.set_state(point, Square.head_dir_to_square(self.dir))
             else:
-                state[point.y, point.x] = Square.SNAKE
+                state.set_state(point, Square.SNAKE, Square.SNAKE + i - 1)
 
     def draw_snake(self, display, state: 'State'):
         rgb = (78, 124, 246)
@@ -126,23 +143,35 @@ class Food:
 
         
 class State:
-    def __init__(self, w, h, food_count):
+    def __init__(self, w, h, food_count, win_reward=1, loss_reward=-1, eat_reward=0.1, fully_obs_state=True):
         self.score = 0
         self.w, self.h = w, h
         self.food_count = food_count
-        self._init_state()
+        self.win_reward = win_reward
+        self.eat_reward = eat_reward
+        self.loss_reward = loss_reward
 
-    def _init_state(self):
+        self._init_state(fully_obs_state)
+
+    def _init_state(self, use_fully_obs_state):
         w,h = self.w, self.h
-        self.state: np.ndarray = np.zeros((w, h), dtype=np.int8)
+        self.state: np.ndarray = np.zeros((h, w), dtype=np.int8)
+        self.fully_obs_state = self.state.copy() if use_fully_obs_state else None
         self.snake: Snake = Snake(3, Point(2, h//2), Direction.RIGHT, w, h)
-        self.snake.add_to_state(self.state)
         self.foods: list[Food] = []
+        self.snake.add_to_state(self)
         self.spawn_food(self.food_count)
 
+    def set_state(self, point: Point, val: int, fully_obs_val = None):
+        x,y = point.x, point.y
+        self.state[y, x] = val
+        if self.fully_obs_state is not None: 
+            self.fully_obs_state[y, x] = fully_obs_val if fully_obs_val else val
+    
     def reset(self):
         self.score = 0
-        self._init_state()
+        use_fully_obs_state = self.fully_obs_state is not None
+        self._init_state(use_fully_obs_state)
     
     def spawn_food(self, count=1):
         empties = np.argwhere(self.state == Square.EMPTY)
@@ -150,33 +179,33 @@ class State:
         rng = np.random.default_rng()
         points = rng.choice(empties, count, replace=False)
         for point in points:
-            self.state[point[0], point[1]] = Square.FOOD
             point = Point(point[1], point[0])
-            food = Food(1, point)
+            self.set_state(point, Square.FOOD)
+            food = Food(self.eat_reward, point)
             self.foods.append(food)
     
     def move_snake(self, action: Direction):
-        done, food, collision_conds = self.snake.move(action, self)
+        loss, food, collision_conds = self.snake.move(action, self)
         reward = food.value if food is not None else 0
         if self.is_win():
-            self.score += 100
-            reward += 100
+            self.score += self.win_reward
+            reward += self.win_reward
             return True, reward, collision_conds
-        if done == True:
-            reward -= 10
-        return done, reward, collision_conds
+        if loss:
+            reward += self.loss_reward
+        return loss, reward, collision_conds
     
     def is_win(self):
         return len(self.snake.snake) == self.w * self.h
     
     def is_out_of_bounds(self, point: Point):
         x,y = point.x, point.y
-        w,h = self.state.shape
+        h,w = self.state.shape
         return x >= w or x < 0 or y >= h or y < 0
     
     def is_snake(self, point: Point):
         x,y = point.x, point.y
-        return self.state[y, x] == Square.SNAKE or self.state[y, x] == Square.HEAD
+        return Square.is_snake(self.state[y, x])
     
     def is_collision(self, point: Point):
         return self.is_out_of_bounds(point) or self.is_snake(point)
@@ -188,15 +217,11 @@ class State:
     def is_empty(self, point: Point):
         x,y = point.x, point.y
         return not self.is_out_of_bounds(point) and self.state[y, x] == Square.EMPTY
-    
-    def win(self):
-        self.score += 100
 
     def snake_eats_food(self, point: Point):
-        x,y = point.x, point.y
         for i, food in enumerate(self.foods):
             if food.point == point:
-                self.state[y, x] = Square.EMPTY
+                self.set_state(point, Square.EMPTY)
                 self.score += food.value
                 break
         del self.foods[i]
@@ -225,8 +250,10 @@ class State:
         self.snake.draw_snake(display, self)
         self.draw_food(display)
 
-    def get_state_copy(self):
-        return self.state.copy()
+    def get_state_copy(self, as_image=False):
+        if as_image:
+            return np.reshape(self.fully_obs_state.copy(), (self.h, self.w, 1))
+        return self.fully_obs_state.copy()
     
 class SnakeGame:
     display: pygame.display
@@ -258,29 +285,33 @@ class SnakeGame:
         self.display.blit(text, [0, 0])
 
 class SnakeEnv(SnakeGame, gym.Env):
-    metadata = {'render.modes': ['human'], "render_fps": 128}
-    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=True, head_relative_state=True, absolute_state=True, truncation_lim=160_000):
+    metadata = {'render.modes': ['human'], "render_fps": 16}
+    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=True, head_relative_state=True, absolute_state=True, as_image=False, normalize=False, truncation_lim=None, truncation_reward=-1):
         SnakeGame.__init__(self, w=w, h=h, food_count=food_count)
         
         self.absolute_state = absolute_state
         self.head_relative_state = head_relative_state
-        observation_space = {}
-        if absolute_state: observation_space['state'] = Box(low=0, high=3, shape=(h, w), dtype=np.int8)
-        if head_relative_state: observation_space['head-relative'] = Dict({
-                                            'dirs-to-food': MultiBinary(4), 
-                                            'danger-dirs': MultiBinary(3),
-                                            'head-dir': MultiBinary(4)
-                                        })
-        self.observation_space = Dict(observation_space)
-
-        if head_relative_action:
-            self.action_space = Discrete(3)
+        self.as_image = as_image
+        self.normalize = normalize
+        if as_image:
+            observation_space = Box(low=0, high=255, shape=(h, w, 1), dtype=np.uint8)
+            self.observation_space = observation_space
         else:
-            self.action_space = Discrete(4)
+            high = w * h + Square.SNAKE - 2 if not normalize else 1
+            observation_space = {}
+            if absolute_state: observation_space['state'] = Box(low=0, high=high, shape=(h, w), dtype=np.uint8)
+            if head_relative_state: observation_space['head-relative'] = Dict({
+                                                'dirs-to-food': MultiBinary(4), 
+                                                'danger-dirs': MultiBinary(3),
+                                                'head-dir': MultiBinary(4)
+                                            })
+            self.observation_space = Dict(observation_space)
+        self.action_space = Discrete(3) if head_relative_action else Discrete(4)
 
         self.render_mode = render_mode
         self.i = 0
-        self.truncation_lim = truncation_lim
+        self.truncation_lim = truncation_lim if truncation_lim is not None else (w*h)**2
+        self.truncation_reward = truncation_reward
 
         self.display = None
         self.board_display = None
@@ -300,18 +331,17 @@ class SnakeEnv(SnakeGame, gym.Env):
         self.i += 1
         truncated = self.i >= self.truncation_lim
         if truncated:
-            self.state.score -= 100
+            self.state.score += self.truncation_reward
 
         dir = action
         if self.action_space.n == 3:
             dir = self._action_to_direction(action)
         terminated, reward, collision_conds = self.state.move_snake(dir)
         next_obs = self._get_obs()
-        info = {'dir': dir, "collision_conds": collision_conds, "state": self.state, "score": self.state.score}
+        info = {'dir': dir, "collision_conds": collision_conds, "state": self.state.state, "score": self.state.score}
 
         if self.render_mode == "human":
             self._render_frame()
-
         return next_obs, reward, terminated, truncated, info
     
     def reset(self, seed=None, options=None):
@@ -326,6 +356,9 @@ class SnakeEnv(SnakeGame, gym.Env):
         return obs, info
     
     def _get_obs(self):
+        if self.as_image:
+            state = self.state.get_state_copy(as_image=True)
+            return state
         obs = {}
         if self.absolute_state:
             state = self.state.get_state_copy().flatten()
@@ -342,9 +375,6 @@ class SnakeEnv(SnakeGame, gym.Env):
             head_dir[self.state.snake.dir] = 1
             obs['head-relative'] = {'dirs-to-food': dirs_to_food, 'danger-dirs': dangers, 'head-dir': head_dir}
         return obs
-    
-    # def flatten_observation(self, obs):
-    #     np.concatenate([obs['state'].flatten(), n])
 
     def render(self):
         self._render_frame()
@@ -370,13 +400,14 @@ class SnakeEnv(SnakeGame, gym.Env):
             pygame.quit()
 
 class SnakePygame(SnakeGame):
-    def __init__(self, w=640, h=480):
-        SnakeGame.__init__(self, 10, w, h)
+    def __init__(self, w, h, game_speed):
+        SnakeGame.__init__(self, w, h, 40)
         # init display
         self.display = pygame.display.set_mode((self.w * BLOCK_SIZE + 2 * BORDER_WIDTH, self.h * BLOCK_SIZE + 2 * BORDER_WIDTH))
         self.board_display = pygame.surface.Surface((self.w * BLOCK_SIZE, self.h * BLOCK_SIZE))
         pygame.display.set_caption('Snake')
         self.clock = pygame.time.Clock()
+        self.game_speed = game_speed
 
     def play_step(self):
         dir = self.state.snake.dir
@@ -400,13 +431,13 @@ class SnakePygame(SnakeGame):
         
         # 3. check if done
         if done:
-            return self.state.state, done, self.state.score
+            return self.state.fully_obs_state, done, self.state.score
         
         # 4. update ui and clock
         self._render_frame()
-        self.clock.tick(SPEED)
+        self.clock.tick(self.game_speed)
         # 5. return game over and score
-        return self.state.state, done, self.state.score
+        return self.state.fully_obs_state, done, self.state.score
     
     def _render_frame(self):
         super()._render_frame()
@@ -414,12 +445,12 @@ class SnakePygame(SnakeGame):
             
 
 if __name__ == '__main__':
-    game = SnakePygame(W, H)
+    game = SnakePygame(W, H, 5)
         
             # game loop
     while True:
         state, done, score = game.play_step()
-        
+        print(state)
         if done:
             break
 

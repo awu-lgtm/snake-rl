@@ -1,0 +1,6 @@
+*/log/
+*/best_models/
+*/model_checkpoints/
+*/wandb/
+best_models/
+tracking/

@@ -14,3 +14,6 @@ def snake_absolute_state():
 
 def snake_image():
     return make(as_image=True)
+
+def snake_all():
+    return make(as_image=True, head_relative_state=True, absolute_state=True)

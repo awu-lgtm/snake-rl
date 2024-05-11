@@ -286,26 +286,31 @@ class SnakeGame:
 
 class SnakeEnv(SnakeGame, gym.Env):
     metadata = {'render.modes': ['human'], "render_fps": 16}
-    def __init__(self, render_mode=None, w=W, h=H, food_count=1, head_relative_action=True, head_relative_state=True, absolute_state=True, as_image=False, normalize=False, truncation_lim=None, truncation_reward=-1):
+    def __init__(self, render_mode=None, w=W, h=H, food_count=1,
+                 head_relative_action=True, head_relative_state=True, 
+                 absolute_state=True, as_image=False, normalize=False, 
+                 truncation_lim=None, truncation_reward=-1):
         SnakeGame.__init__(self, w=w, h=h, food_count=food_count)
         
         self.absolute_state = absolute_state
         self.head_relative_state = head_relative_state
         self.as_image = as_image
         self.normalize = normalize
-        if as_image:
-            observation_space = Box(low=0, high=255, shape=(h, w, 1), dtype=np.uint8)
-            self.observation_space = observation_space
-        else:
-            high = w * h + Square.SNAKE - 2 if not normalize else 1
-            observation_space = {}
-            if absolute_state: observation_space['state'] = Box(low=0, high=high, shape=(h, w), dtype=np.uint8)
-            if head_relative_state: observation_space['head-relative'] = Dict({
-                                                'dirs-to-food': MultiBinary(4), 
-                                                'danger-dirs': MultiBinary(3),
-                                                'head-dir': MultiBinary(4)
-                                            })
-            self.observation_space = Dict(observation_space)
+
+        observation_space = {}
+        if absolute_state:
+            if as_image:
+                observation_space['state'] = Box(low=0, high=255, shape=(h, w, 1), dtype=np.uint8)
+            else:
+                high = w * h + Square.SNAKE - 2 if not normalize else 1
+                observation_space['state'] = Box(low=0, high=high, shape=(h, w), dtype=np.uint8)
+        if head_relative_state: 
+            observation_space['head-relative'] = Dict({
+                'dirs-to-food': MultiBinary(4), 
+                'danger-dirs': MultiBinary(3),
+                'head-dir': MultiBinary(4)
+            })
+        self.observation_space = Dict(observation_space)
         self.action_space = Discrete(3) if head_relative_action else Discrete(4)
 
         self.render_mode = render_mode
@@ -356,12 +361,12 @@ class SnakeEnv(SnakeGame, gym.Env):
         return obs, info
     
     def _get_obs(self):
-        if self.as_image:
-            state = self.state.get_state_copy(as_image=True)
-            return state
         obs = {}
         if self.absolute_state:
-            state = self.state.get_state_copy().flatten()
+            if self.as_image:
+                state = self.state.get_state_copy(as_image=True)
+            else:
+                state = self.state.get_state_copy().flatten()
             obs['state'] = state
         if self.head_relative_state:
             head = self.state.snake.head

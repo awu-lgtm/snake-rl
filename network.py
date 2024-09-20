@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from utils import make_network
+from snake.utils import make_network
 import numpy as np
 
 class QNetwork(nn.Module):

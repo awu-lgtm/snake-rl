@@ -1,6 +1,11 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from collections import namedtuple
+from pathlib import Path
+import os
+from collections import deque
+
+file_path = Path(__file__).resolve().parent
 
 ExpertData = namedtuple('ExpertData', ('states', 'actions'))
 
@@ -56,12 +61,18 @@ def make_dataset(policy, env, n_trajs):
     
     dataset = ExpertDataset(ExpertData(state_tensor, action_tensor))
     
-    name = env.spec.id
-    torch.save(dataset, f'./data/{name}_dataset.pt')
+    data_path = os.path.join(file_path, "data", "dataset.pt")
+    torch.save(dataset, data_path)
+
+def load_saved_dataset(batch_size):
+    data_path = os.path.join(file_path, "data", "dataset.pt")
+    dl = DataLoader(dataset=data_path, batch_size=batch_size, shuffle=True)
+    return dl
     
-# if __name__ == '__main__':
-#     import gymnasium as gym
-#     from stable_baselines3 import PPO
-#     from stable_baselines3.common.evaluation import evaluate_policy
-#     from snake.snake_env import snake_head_relative
+if __name__ == '__main__':
+    from snake.snake_env import snake_head_relative
+    from head_relative.head_relative_policy import get_policy
     
+    n_trajs = 1e4
+    policy = get_policy()
+    make_dataset(policy, snake_head_relative(), n_trajs)

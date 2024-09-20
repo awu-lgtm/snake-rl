@@ -4,11 +4,14 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecVideoRecorder
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
-import wandb
-from wandb.integration.sb3 import WandbCallback
 import optuna
 from snake.snake_env import snake_head_relative
 from pathlib import Path
+import gymnasium as gym
+import os
+import wandb
+from wandb.integration.sb3 import WandbCallback
+
 
 file_path = Path(__file__).resolve().parent
 
@@ -29,21 +32,31 @@ config = {
     "policy_type": "MlpPolicy",
     "total_timesteps": 1_000_000_000,
 }
-run = wandb.init(
-    project="snake",
-    config=config,
-    sync_tensorboard=True,
-    monitor_gym=True,
-)
 
-if __name__ == "__main__":
-    num_cpu = 32
-
-    snake_env = lambda: FlattenObservation(snake_head_relative())
-    env = make_vec_env(env_id=snake_env, n_envs=num_cpu)
-
+def train(env: gym.Env, run):
     eval_callback = EvalCallback(eval_env=Monitor(snake_env()), eval_freq=1_000_000//num_cpu, n_eval_episodes=10, best_model_save_path=f"{file_path}/best_models/")
     checkpoint_callback = CheckpointCallback(save_freq=10_000_000//num_cpu, save_path=f"{file_path}/model_checkpoints/", save_replay_buffer=True, save_vecnormalize=True)
     wandb_callback = WandbCallback(gradient_save_freq=100, verbose=1, log="all")
     model = PPO(config["policy_type"], env, verbose=1, device="auto", tensorboard_log=f"{file_path}/log/{run.id}")
     model.learn(total_timesteps=config["total_timesteps"], callback=[eval_callback, checkpoint_callback, wandb_callback])
+
+def get_policy():
+    best_model_path = os.path.join(file_path, "best_models", "best_model.zip")
+    policy = PPO.load(best_model_path)
+    return policy
+
+if __name__ == "__main__":
+    num_cpu = 32
+
+    run = wandb.init(
+        project="snake",
+        config=config,
+        sync_tensorboard=True,
+        monitor_gym=True,
+    )
+
+    snake_env = lambda: FlattenObservation(snake_head_relative())
+    env = make_vec_env(env_id=snake_env, n_envs=num_cpu)
+    train(env, run)
+
+   

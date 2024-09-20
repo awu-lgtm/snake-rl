@@ -4,14 +4,15 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.monitor import Monitor
-from snake import SnakeEnv
+from snake.snake import SnakeEnv
 from tqdm import tqdm
 from gymnasium import spaces
 import torch
 from torch import nn
+from common.wrappers import ExtractStateWrapper
 
 class CNN(BaseFeaturesExtractor):
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 238):
         super().__init__(observation_space, features_dim)
         n_input_channels = observation_space.shape[0]
         self.cnn = nn.Sequential(
@@ -41,10 +42,11 @@ if __name__ == "__main__":
     
     num_cpu = 32
     w,h = 9,10
-    snake_env = lambda render_mode = None : SnakeEnv(w=w, h=h, food_count=1, head_relative_action=True, head_relative_state=False, as_image=True, render_mode=render_mode, truncation_lim=(w*h)**2)
+    snake_env = lambda render_mode = None : ExtractStateWrapper(SnakeEnv(w=w, h=h, food_count=1, head_relative_action=True, head_relative_state=False, as_image=True, render_mode=render_mode, truncation_lim=(w*h)**2))
     env = make_vec_env(env_id=snake_env, n_envs=num_cpu)
 
     eval_callback = EvalCallback(eval_env=snake_env(), eval_freq=1_000_000//num_cpu, n_eval_episodes=10, best_model_save_path='./best_models/')
     checkpoint_callback = CheckpointCallback(save_freq=10_000_000//num_cpu, save_path='./model_checkpoints/', save_replay_buffer=True, save_vecnormalize=True)
-    model = PPO("CnnPolicy", env, verbose=1, tensorboard_log="./tracking/", device="auto", policy_kwargs=policy_kwargs)
+    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./tracking/", device="auto")
+    print(model.policy.state_dict)
     model.learn(total_timesteps=1_000_000_000, callback=[eval_callback, checkpoint_callback])

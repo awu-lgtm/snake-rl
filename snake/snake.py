@@ -4,17 +4,18 @@ from collections import deque
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Box, Dict, Discrete, MultiBinary
-from utils import Point, Direction, l1_norm, dirs_to_point, map_dirs, move_in_dir
+from snake.utils import Point, Direction, l1_norm, dirs_to_point, map_dirs, move_in_dir
 import sys
 from pathlib import Path
+import os
 
 file_path = Path(__file__).resolve().parent
 
-assets_path = f"{file_path}/assets"
+assets_path = os.path.join(file_path, "assets")
 np.set_printoptions(threshold=sys.maxsize)
 
 pygame.init()
-font = pygame.font.Font(f'{assets_path}/arial.ttf', 25)
+font = pygame.font.Font(os.path.join(assets_path, "arial.ttf"), 25)
 
 W = 10
 H = 10

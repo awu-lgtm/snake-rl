@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/allen/projects/snake-rl/imitation.py", line 16, in <module>
+    env = ImitationWrapper(snake_head_relative())
+TypeError: ImitationWrapper.__init__() missing 2 required positional arguments: 'novice' and 'expert'
+Traceback (most recent call last):
+  File "/home/allen/projects/snake-rl/imitation.py", line 16, in <module>
+    env = ImitationWrapper(snake_head_relative())
+TypeError: ImitationWrapper.__init__() missing 2 required positional arguments: 'novice' and 'expert'

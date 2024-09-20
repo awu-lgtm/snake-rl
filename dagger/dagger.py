@@ -1,22 +1,23 @@
-from common import *
 import torch
 from torch import optim
 from pathlib import Path
 import numpy as np
-from dataset import *
+from dagger.dataset import *
 from torch import distributions as pyd
 import torch.nn as nn
 import os
-from stable_baselines3 import PPO
 import gymnasium as gym
 import numpy as np
-import utils
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 from typing import Callable
 from snake.snake_env import snake_head_relative
-from common.policies import CNN
+from common.policies import ActionCNN
 from common.wrappers import ImitationWrapper
+from pathlib import Path
+import matplotlib.pyplot as plt
+from stable_baselines3 import PPO
+
+file_path = Path(__file__).resolve().parent
 
 class DAGGER:
     def __init__(self, env: gym.Env, policy, expert, lr=0.0003):
@@ -25,26 +26,26 @@ class DAGGER:
 
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
         
-        self.expert = expert
+        self.expert: PPO = expert
         self.expert_action_dim = env.action_space.n
         
         self.loss = nn.CrossEntropyLoss()
         self.softmax = nn.functional.softmax
 
     def expert_policy(self, obs):
-        p = self.expert(obs)
-        action = np.random.choice(self.expert_action_dim, p=p)
-        return action
-
+        a, _ = self.expert.predict(obs, deterministic=True)
+        return a
+    
     def rollout(self, env: gym.Env, num_steps: int):
         states = []
         expert_actions = []
         obs, _ = env.reset()
-        novice_obs = torch.from_numpy(obs["novice"])
+        novice_obs = torch.from_numpy(obs["novice"]).float()
         expert_obs = torch.from_numpy(obs["expert"])
         
         for _ in range(num_steps):
-            logits = self.policy(novice_obs)
+            # print(novice_obs[None])
+            logits = self.policy(novice_obs[None]).squeeze()
 
             action = self.sample_from_logits(logits)
             expert_action = self.expert_policy(expert_obs)
@@ -52,10 +53,10 @@ class DAGGER:
             states.append(novice_obs)
             expert_actions.append(torch.tensor(expert_action))
             
-            obs, _, done, _ = env.step(action)
-            if done:
+            obs, _, terminated, truncated, _ = env.step(action)
+            if terminated or truncated:
                 obs, _ = env.reset()
-            novice_obs = torch.from_numpy(obs["novice"])
+            novice_obs = torch.from_numpy(obs["novice"]).float()
             expert_obs = torch.from_numpy(obs["expert"])
         return ExpertData(torch.stack(states, dim=0), torch.stack(expert_actions, dim=0))
     
@@ -63,11 +64,11 @@ class DAGGER:
         return self.policy(states)
 
     def sample_from_logits(self, logits):
-        p = self.softmax(logits, dim=0)
-        a = torch.multinomial(p, 1)
+        p = self.softmax(logits, dim=-1)
+        a = p.multinomial(1)[0]
         # logits = logits.detach().numpy()
         # a = np.random.choice(a=len(logits), p=utils.compute_softmax(logits, axis=-1).flatten())
-        return a
+        return a.item()
 
     def learn(self, expert_states, expert_actions):
         logits = torch.nn.functional.softmax(self.policy(expert_states), dim=1)
@@ -84,8 +85,9 @@ class DAGGER:
     def save(self, path):
         torch.save(self.policy.state_dict(), path)
 
-def train(env: Callable[[], gym.Env], policy, expert, num_epochs: int, num_rollout_steps:int, supervision_steps, save_dir):
-    # expert dataset loading  
+def train(env: Callable[[], gym.Env], policy, expert, num_epochs: int = 1000, 
+          num_rollout_steps: int = 8192, supervision_steps: int = 20, num_dataset_samples: int = 100_000, batch_size: int = 64, save_dir=file_path):
+    # expert dataset loading
     expert_dataset = ExpertDataset(ExpertData(torch.tensor([]), torch.tensor([], dtype=int)))
     
     # Create env
@@ -95,12 +97,13 @@ def train(env: Callable[[], gym.Env], policy, expert, num_epochs: int, num_rollo
     learner = DAGGER(env, policy, expert)
     epoch_losses = []
     
-    for _ in tqdm(range(num_epochs)):
+    for _ in (bar := tqdm(range(num_epochs))):
         new_data = learner.rollout(env, num_rollout_steps)
-        
         expert_dataset.add_data(new_data)
 
-        dataloader = get_dataloader(expert_dataset, args)
+        if len(expert_dataset) > 1_000_000:
+            expert_dataset = expert_dataset[len(expert_dataset)-800_000:]
+        dataloader = get_dataloader(expert_dataset, num_dataset_samples, batch_size)
 
         # Supervised learning step
         supervision_loss = []
@@ -109,32 +112,41 @@ def train(env: Callable[[], gym.Env], policy, expert, num_epochs: int, num_rollo
             for batch in dataloader:
                 states, actions = batch[0], batch[1]
                 loss += learner.learn(states, actions)
-            supervision_loss.append(loss)
-        epoch_losses.append(torch.mean(supervision_loss))
+            supervision_loss.append(loss.detach().numpy())
+        epoch_losses.append(np.mean(supervision_loss))
+        bar.set_description(desc=f"{epoch_losses[-1]}")
 
     # plotting
-    # epochs = np.arange(1, args.dagger_epochs + 1)
-    
-    # plot_losses(epochs, epoch_losses, args.env)
+    epochs = np.arange(0, num_epochs)
+    plot_losses(epochs, epoch_losses)
 
     # saving policy
-    dagger_path = os.path.join(save_dir, 'dagger')
-    os.makedirs(dagger_path, exist_ok=True)
-    
-    policy_save_path = os.path.join(dagger_path, f'imitation.pt')
-
+    policy_save_path = os.path.join(save_dir, 'imitation.pt')
     learner.save(policy_save_path)
 
+def plot_losses(epochs, losses):
+    plt.plot(epochs, losses)
+    
+    plt.title(f'DAGGER losses')
+    
+    plt.xlabel('epochs')
+    plt.ylabel('loss')
+    
+    plt.show()
+    plot_dir = './plots'
+
+    # os.makedirs(plot_dir, exist_ok=True)
+    
+    # plt.savefig(os.path.join(plot_dir, f'dagger_losses.png'))
 
 if __name__ == '__main__':
-    from pathlib import Path
-
-    file_path = Path(__file__).resolve().parent
+    from head_relative.head_relative_policy import get_policy
+    
     save_dir = os.path.join(file_path, 'models')
 
     env = ImitationWrapper(snake_head_relative())
-    policy = CNN(env.observation_space)
-    expert = PPO.load(f'./expert_policies/{env.spec.id}_policy.pt', env=env)
+    policy = ActionCNN(env.observation_space)
+    expert = get_policy()
     num_epochs = 1e4
     num_rollout_steps = 2048
     supervision_steps = 100

@@ -1,0 +1,208 @@
+{
+    "os": "Linux-5.15.146.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "python": "3.10.14",
+    "heartbeatAt": "2024-05-11T22:05:30.363771",
+    "startedAt": "2024-05-11T22:05:29.862334",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/home/allen/projects/snake-rl/imitation.py",
+    "codePathLocal": "imitation.py",
+    "codePath": "imitation.py",
+    "git": {
+        "remote": "git@github.com:awu-lgtm/snake-rl.git",
+        "commit": "3346419385e4a659bb3fd80448d8f5d2795f01bb"
+    },
+    "email": "allen.wu72@gmail.com",
+    "root": "/home/allen/projects/snake-rl",
+    "host": "truism",
+    "username": "allen",
+    "executable": "/home/allen/anaconda3/envs/snake/bin/python",
+    "cpu_count": 16,
+    "cpu_count_logical": 32,
+    "cpu_freq": {
+        "current": 4199.907000000003,
+        "min": 0.0,
+        "max": 0.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 4199.907,
+            "min": 0.0,
+            "max": 0.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 1006.853931427002,
+            "used": 24.862655639648438
+        }
+    },
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_count": 1,
+    "gpu_devices": [
+        {
+            "name": "NVIDIA GeForce RTX 4090",
+            "memory_total": 25757220864
+        }
+    ],
+    "memory": {
+        "total": 30.939414978027344
+    }
+}

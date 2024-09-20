@@ -53,10 +53,10 @@ class GaussianPolicy(nn.Module):
         return mean, std
 
 # Plotting utils
-def plot_losses(epochs, losses, env_name):
+def plot_losses(epochs, losses):
     plt.plot(epochs, losses)
     
-    plt.title(f'DAGGER losses for {env_name}')
+    plt.title(f'DAGGER losses')
     
     plt.xlabel('epochs')
     plt.ylabel('loss')
@@ -65,5 +65,5 @@ def plot_losses(epochs, losses, env_name):
 
     os.makedirs(plot_dir, exist_ok=True)
     
-    plt.savefig(osp.join(plot_dir, f'dagger_losses_{env_name}.png'))
+    plt.savefig(osp.join(plot_dir, f'dagger_losses.png'))
     
